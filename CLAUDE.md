@@ -12,7 +12,7 @@ Read README.md and PLAN.md first.
 - Business logic goes in SQL views in `sql/schema.sql` where it reasonably can. SQL is a skill
   this project is meant to show.
 - Keep it simple: plain Python, pandas, SQLite, Streamlit, Plotly. Ask before adding a new dependency.
-- Charts: one blue (#2a78d6) for single-series charts, thin marks, no dual axes, labels in grey ink.
+- Charts: one blue for single-series charts (#2a78d6 on light, #3987e5 on the dark dashboard), thin marks, no dual axes, labels in grey ink.
 - After any change to the schema or build script, run:
   `python scripts/make_demo_data.py && python scripts/build_db.py data/demo_events.jsonl data/demo.db`
   and check the dashboard still loads.

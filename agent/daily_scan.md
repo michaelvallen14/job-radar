@@ -39,7 +39,11 @@ Field rules:
 - `is_job_email`: false for shopping, newsletters, job alerts and "jobs you might like" emails.
   Job alerts are NOT applications. Write the line anyway with false, so the email is never checked again.
 - `source`: one of indeed, seek, linkedin, email, company_site, other.
-- `job_type`: casual, part_time, full_time or unknown. Christmas, holiday and "casual" roles are casual.
+- `job_type`: casual, part_time, full_time or unknown. Christmas, holiday, seasonal and "casual" roles are casual.
+  "Part time", "PT" or a fixed number of hours a week is part_time. "Full time", "permanent" and graduate
+  programs are full_time. If the email doesn't say, work it out from the job title: hourly hospitality and
+  retail roles (kitchen hand, barista, wait staff, sales or retail assistant, team member, all rounder) are
+  casual. Use unknown only when nothing in the email or title gives a hint.
 - `event_type`: one of
   - `applied` the user's application was received
   - `viewed` the employer opened it
