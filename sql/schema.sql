@@ -48,7 +48,11 @@ WITH ranked AS (
            ) AS rn
     FROM events e
 )
-SELECT a.application_id, a.company, a.role, a.source, a.job_type, a.applied_date,
+SELECT a.application_id, a.company, a.role, a.source, a.job_type,
+       -- The dashboard's job type switch. Part-time sits with casual; unknown only shows under "All".
+       CASE a.job_type WHEN 'casual' THEN 'Casual' WHEN 'part_time' THEN 'Casual'
+                       WHEN 'full_time' THEN 'Full time' END AS job_group,
+       a.applied_date,
        r.event_date AS last_update,
        CASE
            WHEN r.event_type IN ('applied', 'viewed')
@@ -61,29 +65,35 @@ FROM applications a
 JOIN ranked r ON r.application_id = a.application_id AND r.rn = 1;
 
 -- How far applications get. An application counts at every stage it ever reached.
+-- One row per stage per job_group, so the dashboard can filter with WHERE and add up n.
 CREATE VIEW v_funnel AS
-SELECT 'Applied'            AS stage, 1 AS stage_order, COUNT(*) AS n FROM applications
+WITH reached AS (
+    -- One row per application with a 0/1 flag for each stage it ever reached.
+    SELECT s.application_id, s.job_group,
+           MAX(e.event_type IN ('viewed', 'assessment', 'interview', 'offer', 'rejected')) AS got_reply,
+           MAX(e.event_type IN ('assessment', 'interview', 'offer'))                       AS interview,
+           MAX(e.event_type = 'offer')                                                     AS offer
+    FROM v_current_status s
+    JOIN events e USING (application_id)
+    GROUP BY s.application_id, s.job_group
+)
+SELECT job_group, 'Applied'           AS stage, 1 AS stage_order, COUNT(*)       AS n FROM reached GROUP BY job_group
 UNION ALL
-SELECT 'Got any reply',     2, COUNT(DISTINCT application_id) FROM events
-    WHERE event_type IN ('viewed', 'assessment', 'interview', 'offer', 'rejected')
+SELECT job_group, 'Got any reply',     2,                         SUM(got_reply)      FROM reached GROUP BY job_group
 UNION ALL
-SELECT 'Interview or test', 3, COUNT(DISTINCT application_id) FROM events
-    WHERE event_type IN ('assessment', 'interview', 'offer')
+SELECT job_group, 'Interview or test', 3,                         SUM(interview)      FROM reached GROUP BY job_group
 UNION ALL
-SELECT 'Offer',             4, COUNT(DISTINCT application_id) FROM events
-    WHERE event_type = 'offer';
+SELECT job_group, 'Offer',             4,                         SUM(offer)          FROM reached GROUP BY job_group;
 
--- Which job sites actually get you replies.
+-- Which job sites actually get you replies. Counts only, per source and job_group:
+-- rates can't be added up across groups, so the dashboard sums the counts first, then divides.
 CREATE VIEW v_by_source AS
-SELECT a.source,
+SELECT source, job_group,
        COUNT(*) AS applications,
-       SUM(CASE WHEN s.status NOT IN ('applied', 'viewed', 'no_response') THEN 1 ELSE 0 END) AS got_real_reply,
-       ROUND(100.0 * SUM(CASE WHEN s.status IN ('assessment', 'interview', 'offer') THEN 1 ELSE 0 END) / COUNT(*), 1)
-           AS interview_rate_pct
-FROM applications a
-JOIN v_current_status s USING (application_id)
-GROUP BY a.source
-ORDER BY applications DESC;
+       SUM(status NOT IN ('applied', 'viewed', 'no_response'))  AS got_real_reply,
+       SUM(status IN ('assessment', 'interview', 'offer'))      AS reached_interview
+FROM v_current_status
+GROUP BY source, job_group;
 
 -- What to do about each application, for the dashboard's table and reminders.
 -- Following up after a week is a common rule of thumb; 21 days is where v_current_status gives up.

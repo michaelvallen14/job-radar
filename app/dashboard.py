@@ -61,6 +61,7 @@ div[class*="st-key-card"] { background: #1a1a19; border: 1px solid rgba(255,255,
 .jr-tiles { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .jr-tile { background: #141413; border: 1px solid rgba(255,255,255,.06); border-radius: 12px; padding: 14px 16px; }
 .jr-tile .v { font-size: 1.9rem; font-weight: 600; line-height: 1.1; color: #f0efec; }
+.jr-tile .of { font-size: .95rem; font-weight: 400; color: #898781; }
 .jr-tile .l { margin-top: 4px; color: #c3c2b7; font-size: .92rem; }
 .jr-tile .d { margin-top: 6px; color: #898781; font-size: .8rem; }
 .up { color: #0ca30c; } .down { color: #e66767; } .flat { color: #898781; }
@@ -103,9 +104,9 @@ div[class*="st-key-card"] { background: #1a1a19; border: 1px solid rgba(255,255,
 
 
 @st.cache_data(ttl=600)
-def q(sql: str) -> pd.DataFrame:
+def q(sql: str, params: dict | None = None) -> pd.DataFrame:
     with sqlite3.connect(DB) as con:
-        return pd.read_sql(sql, con)
+        return pd.read_sql(sql, con, params=params)
 
 
 def esc(v) -> str:
@@ -123,17 +124,11 @@ def style(fig, height=300):
 
 PLOT_CONFIG = {"displayModeBar": False}
 
-status = q("""SELECT s.*, n.next_step, n.follow_up FROM v_current_status s
-              JOIN v_next_step n USING (application_id)""")
-events = q("SELECT * FROM events")
-funnel = q("SELECT stage, n FROM v_funnel ORDER BY stage_order")
-by_source = q("SELECT * FROM v_by_source").assign(source=lambda d: d.source.map(SOURCE_LABEL))
-
 today = date.today()
 this_month = today.strftime("%Y-%m")
 last_month = (today.replace(day=1) - pd.Timedelta(days=1)).strftime("%Y-%m")
-applied_month = status.applied_date.str[:7]
-last_email = pd.to_datetime(events.event_date.max()).strftime("%d %b %Y") if len(events) else "never"
+latest = q("SELECT MAX(event_date) AS d FROM events").d.iloc[0]
+last_email = pd.to_datetime(latest).strftime("%d %b %Y") if latest else "never"
 
 # ---- header ---------------------------------------------------------------------
 badge = ("Demo data. Every company here is made up" if DB == DEMO
@@ -143,7 +138,32 @@ st.markdown(f"""
 <p class="jr-title">Welcome back, {NAME}</p>
 <p class="jr-sub">Here's an overview of your job search, filled in from your inbox.</p>
 """, unsafe_allow_html=True)
+# Deselecting a segmented control returns None, so fall back to All.
+group = st.segmented_control("Job type", ["All", "Casual", "Full time"], default="All",
+                             label_visibility="collapsed") or "All"
 st.write("")
+
+# Every query below takes the same filter. job_group comes from v_current_status in sql/schema.sql.
+G = {"g": group}
+WHERE_GROUP = "(:g = 'All' OR job_group = :g)"
+status = q(f"""SELECT s.*, n.next_step, n.follow_up FROM v_current_status s
+               JOIN v_next_step n USING (application_id) WHERE {WHERE_GROUP}""", G)
+events = q(f"""SELECT e.* FROM events e JOIN v_current_status USING (application_id)
+               WHERE {WHERE_GROUP}""", G)
+# The views hold counts per job_group; adding them up gives the numbers for the chosen group.
+funnel = q(f"""SELECT stage, SUM(n) AS n FROM v_funnel WHERE {WHERE_GROUP}
+               GROUP BY stage, stage_order ORDER BY stage_order""", G)
+by_source = q(f"""SELECT source, SUM(applications) AS applications, SUM(got_real_reply) AS got_real_reply,
+                         ROUND(100.0 * SUM(got_real_reply) / SUM(applications)) AS reply_rate_pct
+                  FROM v_by_source WHERE {WHERE_GROUP}
+                  GROUP BY source ORDER BY applications DESC""", G).assign(source=lambda d: d.source.map(SOURCE_LABEL))
+
+if status.empty:
+    st.info(f"No {group.lower()} applications yet. Pick another job type above.")
+    st.stop()
+
+applied_month = status.applied_date.str[:7]
+all_total = int(q("SELECT COUNT(*) AS n FROM applications").n.iloc[0])
 
 total = len(status)
 replied = int(funnel.loc[funnel.stage == "Got any reply", "n"].iloc[0])
@@ -151,6 +171,11 @@ interviews = int(funnel.loc[funnel.stage == "Interview or test", "n"].iloc[0])
 rejected = int((status.status == "rejected").sum())
 new_this_month = int((applied_month == this_month).sum())
 new_last_month = int((applied_month == last_month).sum())
+
+
+def of(n: int) -> str:
+    # Sample size next to each headline number: small groups give shaky percentages.
+    return f'<span class="of"> of {n}</span>'
 
 
 def delta(n: int, what: str, up_is_good: bool = True) -> str:
@@ -171,16 +196,19 @@ with left:
         rejected_now = int(((status.status == "rejected") & (status.last_update.str[:7] == this_month)).sum())
         tiles.markdown(f"""
         <div class="jr-tiles">
-          <div class="jr-tile"><div class="v">{total}</div><div class="l">Total applications</div>
+          <div class="jr-tile"><div class="v">{total}{of(all_total) if group != "All" else ""}</div>
+            <div class="l">{"Total" if group == "All" else group} applications</div>
             <div class="d">{delta(new_this_month, "new")} (last month {new_last_month})</div></div>
-          <div class="jr-tile"><div class="v">{replied}</div><div class="l">Got a reply</div>
+          <div class="jr-tile"><div class="v">{replied}{of(total)}</div><div class="l">Got a reply</div>
             <div class="d">{reply_rate}</div></div>
-          <div class="jr-tile"><div class="v">{interviews}</div><div class="l">Interviews or tests</div>
+          <div class="jr-tile"><div class="v">{interviews}{of(total)}</div><div class="l">Interviews or tests</div>
             <div class="d">{'<span class="flat">&mdash;</span> none yet, keep going' if interviews == 0
                             else f'{interviews / total:.0%} of applications'}</div></div>
-          <div class="jr-tile"><div class="v">{rejected}</div><div class="l">Rejected</div>
+          <div class="jr-tile"><div class="v">{rejected}{of(total)}</div><div class="l">Rejected</div>
             <div class="d">{delta(rejected_now, "new", up_is_good=False)}</div></div>
         </div>""", unsafe_allow_html=True)
+        if total < 10:
+            tiles.caption(f"Only {total} applications in this group, so treat the percentages as a rough guess.")
 
         groups = status.status.map(GROUP).value_counts().reindex(list(GROUP_COLOR)).fillna(0).astype(int)
         groups = groups[groups > 0]
@@ -300,7 +328,7 @@ with c1, st.container(key="card_funnel"):
 
 with c2, st.container(key="card_sources"):
     st.markdown('<p class="jr-h">Replies by job site</p>', unsafe_allow_html=True)
-    src = by_source.assign(rate=lambda d: (100 * d.got_real_reply / d.applications).round(0)).sort_values("rate")
+    src = by_source.rename(columns={"reply_rate_pct": "rate"}).sort_values("rate")
     src["label"] = src.apply(lambda r: f"{r.rate:.0f}%  ({r.got_real_reply} of {r.applications})", axis=1)
     fig = px.bar(src, x="rate", y="source", orientation="h", text="label", color_discrete_sequence=[BLUE])
     fig.update_layout(bargap=.45)
