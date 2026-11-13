@@ -2,6 +2,7 @@
 -- Built from data/events.jsonl by scripts/build_db.py. Never edit the .db by hand:
 -- events.jsonl is the source of truth, the database can always be rebuilt.
 
+DROP VIEW  IF EXISTS v_next_step;
 DROP VIEW  IF EXISTS v_current_status;
 DROP VIEW  IF EXISTS v_funnel;
 DROP VIEW  IF EXISTS v_by_source;
@@ -83,3 +84,19 @@ FROM applications a
 JOIN v_current_status s USING (application_id)
 GROUP BY a.source
 ORDER BY applications DESC;
+
+-- What to do about each application, for the dashboard's table and reminders.
+-- Following up after a week is a common rule of thumb; 21 days is where v_current_status gives up.
+CREATE VIEW v_next_step AS
+SELECT application_id,
+       CASE
+           WHEN status IN ('applied', 'viewed') AND days_since_applied >= 7 THEN 'Follow up now'
+           WHEN status IN ('applied', 'viewed')
+                THEN 'Follow up on ' || date(COALESCE(applied_date, last_update), '+7 days')
+           WHEN status = 'no_response'                 THEN 'No reply after 21 days'
+           WHEN status IN ('assessment', 'interview')  THEN 'Prepare'
+           WHEN status = 'offer'                       THEN 'Decide on the offer'
+           ELSE 'Closed'
+       END AS next_step,
+       (status IN ('applied', 'viewed') AND days_since_applied >= 7) AS follow_up
+FROM v_current_status;
