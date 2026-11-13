@@ -42,7 +42,11 @@ Field rules:
   - `interview` an invite to talk or meet
   - `offer` a job offer
   - `rejected` any "unfortunately", "not progressing", "position filled" email
-- `company`: the employer, not the job site. For Indeed and Seek emails, the employer is after the dash in the subject.
+- `company`: the employer, not the job site. Do not take it from the subject line: in
+  "Indeed Application: Retail Sales Assistant - Elizabeth" the part after the dash is part of the
+  job title, not the employer. In Indeed confirmations the employer is in the body, in the line
+  "The following items were sent to <employer>". For other emails, use the employer named in the body.
+  Use `role` for the full job title as advertised.
 - `confidence`: your honest 0 to 1 score. Below 0.7 means a person should check it.
 
 ## Safety rules
