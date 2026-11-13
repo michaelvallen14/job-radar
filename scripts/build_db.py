@@ -6,7 +6,8 @@ Usage:
 
 Each line of the events file is one job email the daily agent extracted (see agent/daily_scan.md).
 This script matches every email to an application:
-  - an "applied" email starts a new application
+  - an "applied" email starts a new application, unless it is the employer's own copy of a
+    job site confirmation from the same day (see find_duplicate_apply)
   - any other email (viewed, rejected, interview...) attaches to the most recent application
     at the same company that was applied for before it
   - a reply with no matching application still gets a row, flagged needs_review
@@ -15,6 +16,7 @@ import json
 import re
 import sqlite3
 import sys
+from datetime import date
 from difflib import SequenceMatcher
 from pathlib import Path
 
@@ -62,6 +64,21 @@ def find_application(apps: list[dict], e: dict) -> dict | None:
     return max(candidates, key=lambda a: (similar(a["role"], e.get("role")), a["applied_date"] or ""))
 
 
+def find_duplicate_apply(apps: list[dict], e: dict) -> dict | None:
+    # Many employers send their own "we got your application" email on top of the job site's one.
+    # Same company, similar role, a different source and within a day means it's the same application.
+    # Same source twice is kept as two applications: that's a real second apply.
+    key = company_key(e["company"])
+    day = date.fromisoformat(e["received_at"][:10])
+    for a in reversed(apps):
+        if (a["applied_date"] and a["source"] != e.get("source", "other")
+                and similar(a["company_key"], key) >= 0.85
+                and similar(a["role"], e.get("role")) >= 0.6
+                and abs((day - date.fromisoformat(a["applied_date"])).days) <= 1):
+            return a
+    return None
+
+
 def build(events_path: Path, db_path: Path) -> None:
     events = load_events(events_path)
     apps: list[dict] = []
@@ -69,7 +86,10 @@ def build(events_path: Path, db_path: Path) -> None:
 
     for e in events:
         date = e["received_at"][:10]
-        app = None if e["event_type"] == "applied" else find_application(apps, e)
+        if e["event_type"] == "applied":
+            app = find_duplicate_apply(apps, e)
+        else:
+            app = find_application(apps, e)
         if app is None:
             app = {
                 "application_id": len(apps) + 1,
