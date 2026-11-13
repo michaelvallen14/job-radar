@@ -1,0 +1,11 @@
+# Real inbox data stays out of the public repo.
+# Ignore everything in data/, then allow only the fake demo files back in,
+# so a new real file (a backup, a copy) can't slip into a commit by accident.
+data/*
+!data/demo_events.jsonl
+!data/demo.db
+eval/labels*.csv
+
+__pycache__/
+.venv/
+.DS_Store
