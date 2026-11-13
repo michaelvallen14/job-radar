@@ -20,6 +20,11 @@ Find job application emails in the user's Gmail and append one JSON line per ema
    - `from:(indeedapply@indeed.com OR seek.com.au OR linkedin.com) after:<date>`
    - `(application OR applying OR interview OR assessment OR "next steps" OR unfortunately OR "not successful" OR offer) after:<date> -category:promotions`
    - `in:sent (application OR resume OR CV) after:<date>` (applications sent by plain email)
+   Seek sends job alerts and application emails from the same address (`noreply@s.seek.com.au`),
+   so never exclude that sender. Its application emails say "successfully submitted to <employer>",
+   "<employer> has viewed your application" or "unlikely to progress further".
+   Gmail groups emails into threads, and one Seek thread can hold many applications.
+   Open every thread and handle each message in it on its own.
 3. Skip any email whose Gmail message id is already in `data/events.jsonl`.
 4. For each remaining email, read it and decide. Write exactly one JSON line:
 
