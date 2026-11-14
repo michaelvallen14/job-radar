@@ -139,7 +139,7 @@ st.markdown(f"""
 <p class="jr-sub">Here's an overview of your job search, filled in from your inbox.</p>
 """, unsafe_allow_html=True)
 # Deselecting a segmented control returns None, so fall back to All.
-group = st.segmented_control("Job type", ["All", "Casual", "Full time"], default="All",
+group = st.segmented_control("Job type", ["All", "Casual", "Office"], default="All",
                              label_visibility="collapsed") or "All"
 st.write("")
 
